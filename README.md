@@ -39,6 +39,8 @@ python -m whispermovie.translate /path/to/long_audio.mp3
 
 See `python -m whispermovie.translate -h` for more command line options.
 
+This tool invokes OpenAI API and the requirements for local computing resources is minumum (you don't need a GPU!). The price of OpenAI API is currently [$0.006 per minute](https://openai.com/pricing), which sums up to about 0.72 dollar for a 2-hour movie.
+
 ## Example
 
 I downloaded [this video](https://www.youtube.com/watch?v=kFtrvdriLU8), and transcribed it. The results look like this:
