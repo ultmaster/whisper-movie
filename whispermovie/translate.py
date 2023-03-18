@@ -209,7 +209,7 @@ def main():
         raise ValueError("segment must be at least 10 seconds.")
     if args.overlap < 0 or args.overlap >= args.segment:
         raise ValueError("overlap must be at least 0 and less than segment.")
-    if args.delete_duplicates == 1:
+    if args.delete_duplicates <= 1:
         raise ValueError("delete_duplicates must be at least 2 or zero.")
 
     main_directory = Path(args.output)
