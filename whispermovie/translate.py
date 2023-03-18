@@ -162,7 +162,7 @@ def merge_subtitles(subtitle_segments: List[Tuple[Path, int, int]], output_path:
 
 def segment_and_translate(audio_path: Path, main_directory: Path,
                           segment_length: int, overlap: int, prompt: str,
-                          delete_duplicates: int) -> None:
+                          delete_duplicates: int, reuse: bool) -> None:
     """Segment an audio file and translate each segment.
     Results are saved in the main_directory.
 
@@ -173,15 +173,19 @@ def segment_and_translate(audio_path: Path, main_directory: Path,
         overlap (int): Length of overlap between segments in seconds.
         prompt (str): Prompt to use for translation.
         delete_duplicates (int): Number of consecutive duplicate subtitles to delete.
+        reuse (bool): Whether to reuse existing translation files.
     """
     translations: List[Tuple[Path, int, int]] = []
     for segment_path, start, end in segment_audio(audio_path, main_directory, segment_length, overlap):
         translated_path = main_directory / f"{start:05d}-{end:05d}.srt"
-        _logger.info("Using whisper to translate %s", segment_path)
-        with segment_path.open("rb") as f:
-            response = translate(f, prompt)
-            translated_path.write_text(response)
-            _logger.info("Translation saved: %s", translated_path)
+        if reuse and translated_path.exists():
+            _logger.info("Translation already exists: %s", translated_path)
+        else:
+            _logger.info("Using whisper to translate %s", segment_path)
+            with segment_path.open("rb") as f:
+                response = translate(f, prompt)
+                translated_path.write_text(response)
+                _logger.info("Translation saved: %s", translated_path)
         translations.append((translated_path, start, end))
 
     merge_path = main_directory / "merged.srt"
@@ -200,6 +204,7 @@ def main():
     parser.add_argument("--delete-duplicates", type=int, default=3,
                         help="Number of consecutive duplicate subtitles to delete. "
                              "Useful for removing false positive of silence. Setting to 0 to disable.")
+    parser.add_argument("--reuse", default=False, action="store_true", help="Whether to reuse existing files.")
     args = parser.parse_args()
 
     audio_path = Path(args.input)
@@ -215,7 +220,7 @@ def main():
     main_directory = Path(args.output)
     main_directory.mkdir(parents=True, exist_ok=True)
     segment_and_translate(audio_path, main_directory,
-                          args.segment, args.overlap, args.prompt, args.delete_duplicates)
+                          args.segment, args.overlap, args.prompt, args.delete_duplicates, args.reuse)
 
 
 if __name__ == "__main__":
