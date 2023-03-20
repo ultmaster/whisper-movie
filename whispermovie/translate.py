@@ -1,6 +1,7 @@
 import argparse
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import BinaryIO, Iterator, Tuple, List, cast
 
@@ -12,13 +13,16 @@ from .utils import get_logger
 _logger = get_logger()
 
 
-def translate(audio_file: BinaryIO, prompt: str, response_format: str = "srt") -> str:
+def translate(audio_file: BinaryIO, prompt: str, response_format: str = "srt",
+              timeout: float = 60., max_retries: int = 0) -> str:
     """Translate audio to text.
 
     Args:
         audio_file (BinaryIO): The audio file to translate.
         prompt (str): The prompt to use for translation.
         response_format (str, optional): The format of the response. Defaults to "srt".
+        timeout (float): The timeout for the request.
+        max_retries (int): The maximum number of retries.
 
     Returns:
         str: The translated text.
@@ -28,19 +32,38 @@ def translate(audio_file: BinaryIO, prompt: str, response_format: str = "srt") -
         raise RuntimeError("OPENAI_API_KEY environment variable not set")
 
     model = "whisper-1"
-    response = requests.post(
-        "https://api.openai.com/v1/audio/translations",
-        data={
-            "model": model,
-            "prompt": prompt,
-            "response_format": response_format,
-        },
-        files={"file": audio_file},
-        headers={"Authorization": "Bearer " + api_key}
-    )
-    if response.status_code != 200:
-        raise RuntimeError(f"Error translating audio: {response.text}")
-    return response.text
+
+    num_retries = 0
+    delay = 1.
+    while True:
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/audio/translations",
+                data={
+                    "model": model,
+                    "prompt": prompt,
+                    "response_format": response_format,
+                },
+                files={"file": audio_file},
+                headers={"Authorization": "Bearer " + api_key},
+                timeout=timeout
+            )
+            if response.status_code != 200:
+                raise RuntimeError(f"Error translating audio: {response.text}")
+
+            return response.text
+        except:
+            num_retries += 1
+            if num_retries > max_retries:
+                _logger.error(f"Maximum number of retries (%d) exceeded.", max_retries)
+                raise
+
+            delay *= 2
+            _logger.warning('Request failed. Retry in %f seconds.', delay)
+            time.sleep(delay)
+
+            # Reset audio file IO.
+            audio_file.seek(0)
 
 
 def get_duration(media_path: Path) -> float:
@@ -76,13 +99,14 @@ def clip_audio(audio_path: Path, start: int, end: int, output_path: Path) -> Non
 
 
 def segment_audio(audio_path: Path, output_directory: Path,
-                  segment_length: int, overlap: int) -> Iterator[Tuple[Path, int, int]]:
+                  segment_length: int, overlap: int, reuse: bool) -> Iterator[Tuple[Path, int, int]]:
     """Segment an audio file into segments of length segment_length with overlap overlap.
 
     Args:
         audio_path (Path): Path to the audio file to segment.
         segment_length (int): Length of each segment in seconds.
         overlap (int): Length of overlap between segments in seconds.
+        reuse (bool): Whether to reuse existing segments.
     """
     _logger.info("Segmenting audio file %s into segments of length %d with overlap %d",
                  audio_path, segment_length, overlap)
@@ -96,7 +120,10 @@ def segment_audio(audio_path: Path, output_directory: Path,
             # Last 1 second.
             end = int(duration + 1)  # Add 1 to be safe.
         output_path = output_directory / f"{start:05d}-{end:05d}.mp3"
-        clip_audio(audio_path, start, end, output_path)
+        if reuse and output_path.exists():
+            _logger.info('Reuse generated audio: %s', output_path)
+        else:
+            clip_audio(audio_path, start, end, output_path)
         yield output_path, start, end
         if end >= duration:
             break
@@ -162,7 +189,8 @@ def merge_subtitles(subtitle_segments: List[Tuple[Path, int, int]], output_path:
 
 def segment_and_translate(audio_path: Path, main_directory: Path,
                           segment_length: int, overlap: int, prompt: str,
-                          delete_duplicates: int, reuse: bool) -> None:
+                          delete_duplicates: int, reuse: bool,
+                          timeout: float, max_retries: int) -> None:
     """Segment an audio file and translate each segment.
     Results are saved in the main_directory.
 
@@ -174,16 +202,18 @@ def segment_and_translate(audio_path: Path, main_directory: Path,
         prompt (str): Prompt to use for translation.
         delete_duplicates (int): Number of consecutive duplicate subtitles to delete.
         reuse (bool): Whether to reuse existing translation files.
+        timeout (float): The timeout for OpenAI requests.
+        max_retries (int): The maximum number of OpenAI request retries.
     """
     translations: List[Tuple[Path, int, int]] = []
-    for segment_path, start, end in segment_audio(audio_path, main_directory, segment_length, overlap):
+    for segment_path, start, end in segment_audio(audio_path, main_directory, segment_length, overlap, reuse):
         translated_path = main_directory / f"{start:05d}-{end:05d}.srt"
         if reuse and translated_path.exists():
             _logger.info("Translation already exists: %s", translated_path)
         else:
             _logger.info("Using whisper to translate %s", segment_path)
             with segment_path.open("rb") as f:
-                response = translate(f, prompt)
+                response = translate(f, prompt, timeout=timeout, max_retries=max_retries)
                 translated_path.write_text(response)
                 _logger.info("Translation saved: %s", translated_path)
         translations.append((translated_path, start, end))
@@ -205,6 +235,8 @@ def main():
                         help="Number of consecutive duplicate subtitles to delete. "
                              "Useful for removing false positive of silence. Setting to 0 to disable.")
     parser.add_argument("--reuse", default=False, action="store_true", help="Whether to reuse existing files.")
+    parser.add_argument("--timeout", default=60., type=float, help="Timeout of OpenAI requests.")
+    parser.add_argument("--max-retries", default=0, type=int, help="Max retries of OpenAI requests.")
     args = parser.parse_args()
 
     audio_path = Path(args.input)
@@ -220,7 +252,8 @@ def main():
     main_directory = Path(args.output)
     main_directory.mkdir(parents=True, exist_ok=True)
     segment_and_translate(audio_path, main_directory,
-                          args.segment, args.overlap, args.prompt, args.delete_duplicates, args.reuse)
+                          args.segment, args.overlap, args.prompt, args.delete_duplicates, args.reuse,
+                          args.timeout, args.max_retries)
 
 
 if __name__ == "__main__":
