@@ -214,7 +214,7 @@ def segment_and_translate(audio_path: Path, main_directory: Path,
             _logger.info("Using whisper to translate %s", segment_path)
             with segment_path.open("rb") as f:
                 response = translate(f, prompt, timeout=timeout, max_retries=max_retries)
-                translated_path.write_text(response)
+                translated_path.write_text(response, encoding="utf-8", errors="replace")
                 _logger.info("Translation saved: %s", translated_path)
         translations.append((translated_path, start, end))
 

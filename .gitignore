@@ -3,6 +3,7 @@
 *.mp4
 *.srt
 outputs/
+shortcuts/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
