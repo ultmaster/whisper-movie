@@ -28,7 +28,7 @@ def _make_openai_request(api_path: str, request_data: Any, request_json: Any, re
     api_key = os.environ.get("OPENAI_API_KEY")
     if api_key is None:
         raise RuntimeError("OPENAI_API_KEY environment variable not set")
-    
+
     # proxies = {
     #     "http": "http://azureuser:%Jy44czQ8p6HI2Ao@23.97.70.12:3128",
     #     "https": "http://azureuser:%Jy44czQ8p6HI2Ao@23.97.70.12:3128",
@@ -95,11 +95,11 @@ def openai_audio(audio_file: BinaryIO, prompt: str,
     request_params = {
         "model": model,
         "prompt": prompt,
-        "response_format": response_format,
+        "response_format": response_format
     }
 
     if language is not None:
-        request_params["language"] = language
+        request_params["lang"] = language
 
     return _make_openai_request("/audio/" + mode, request_params, {}, {"file": audio_file}, max_retries, timeout)
 
