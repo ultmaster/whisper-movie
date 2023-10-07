@@ -169,7 +169,7 @@ def segment_and_process(mode: str, audio_path: Path, progress_directory: Path, o
         else:
             _logger.info("Using whisper to translate / transcribe %s", segment_path)
             with segment_path.open("rb") as f:
-                response = openai_audio(f, prompt, mode=mode, timeout=timeout, max_retries=max_retries)
+                response = openai_audio(f, prompt, mode=mode, timeout=timeout, max_retries=max_retries, language=language)
                 subtitle_path.write_text(response, encoding="utf-8", errors="replace")
                 _logger.info("Subtitle saved: %s", subtitle_path)
         subtitles.append((subtitle_path, start, end))
